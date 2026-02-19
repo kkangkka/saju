@@ -1,0 +1,165 @@
+from fastapi import FastAPI
+from datetime import datetime
+import pytz
+from lunar_python import Solar, Lunar
+import datetime as dt
+
+app = FastAPI()
+
+STEM_INFO = {
+    "甲": ("Wood", "Yang"),
+    "乙": ("Wood", "Yin"),
+    "丙": ("Fire", "Yang"),
+    "丁": ("Fire", "Yin"),
+    "戊": ("Earth", "Yang"),
+    "己": ("Earth", "Yin"),
+    "庚": ("Metal", "Yang"),
+    "辛": ("Metal", "Yin"),
+    "壬": ("Water", "Yang"),
+    "癸": ("Water", "Yin")
+}
+
+GENERATES = {
+    "Wood": "Fire",
+    "Fire": "Earth",
+    "Earth": "Metal",
+    "Metal": "Water",
+    "Water": "Wood"
+}
+
+CONTROLS = {
+    "Wood": "Earth",
+    "Earth": "Water",
+    "Water": "Fire",
+    "Fire": "Metal",
+    "Metal": "Wood"
+}
+
+ALL_ELEMENTS = ["Wood", "Fire", "Earth", "Metal", "Water"]
+
+def classify_elements(day_element, strength_type, climate_element):
+
+    favorable = []
+    harmful = []
+    neutral = []
+
+    if strength_type == "Strong (신강)":
+        favorable = [CONTROLS[day_element], GENERATES[day_element]]
+        harmful = [day_element]
+
+        for k, v in GENERATES.items():
+            if v == day_element:
+                harmful.append(k)
+
+    else:
+        resource = None
+        for k, v in GENERATES.items():
+            if v == day_element:
+                resource = k
+        favorable = [day_element, resource]
+        harmful = [CONTROLS[day_element], GENERATES[day_element]]
+
+    if climate_element and climate_element not in favorable:
+        favorable.append(climate_element)
+
+    for e in ALL_ELEMENTS:
+        if e not in favorable and e not in harmful:
+            neutral.append(e)
+
+    return {
+        "희신": favorable,
+        "기신": harmful,
+        "중립": neutral
+    }
+
+
+@app.get("/calculate-saju")
+def calculate_saju(birth_date: str, birth_time: str, timezone: str, gender: int):
+
+    tz = pytz.timezone(timezone)
+    dt_obj = datetime.strptime(f"{birth_date} {birth_time}", "%Y-%m-%d %H:%M")
+    dt_obj = tz.localize(dt_obj)
+
+    solar = Solar.fromYmdHms(
+        dt_obj.year, dt_obj.month, dt_obj.day,
+        dt_obj.hour, dt_obj.minute, 0
+    )
+
+    lunar = solar.getLunar()
+    eight_char = lunar.getEightChar()
+
+    year_stem = eight_char.getYearGan()
+    month_stem = eight_char.getMonthGan()
+    day_stem = eight_char.getDayGan()
+    hour_stem = eight_char.getTimeGan()
+
+    visible_stems = [year_stem, month_stem, day_stem, hour_stem]
+
+    # Basic strength
+    score = 0
+    day_element, _ = STEM_INFO[day_stem]
+
+    for stem in visible_stems:
+        element, _ = STEM_INFO[stem]
+        if element == day_element:
+            score += 2
+        elif GENERATES[element] == day_element:
+            score += 1
+        elif CONTROLS[element] == day_element:
+            score -= 2
+
+    strength_type = "Strong (신강)" if score > 0 else "Weak (신약)"
+
+    # Climate (simple)
+    month_branch = eight_char.getMonthZhi()
+    climate_element = None
+    if month_branch in ["巳", "午"]:
+        climate_element = "Water"
+    elif month_branch in ["亥", "子"]:
+        climate_element = "Fire"
+
+    element_roles = classify_elements(day_element, strength_type, climate_element)
+
+    # 대운
+    yun = eight_char.getYun(gender)
+    da_yun_list = []
+    for da in yun.getDaYun():
+        da_yun_list.append({
+            "pillar": da.getGanZhi(),
+            "start_age": da.getStartAge()
+        })
+
+    # Current Year 세운
+    current_year = dt.date.today().year
+    current_solar = Solar.fromYmd(current_year, 1, 1)
+    current_lunar = current_solar.getLunar()
+    current_year_ganzhi = current_lunar.getYearInGanZhi()
+
+    current_year_stem = current_year_ganzhi[0]
+    current_element, _ = STEM_INFO[current_year_stem]
+
+    current_influence = "Supportive year" if current_element == day_element else "Challenging year"
+
+    return {
+        "four_pillars": {
+            "year": eight_char.getYear(),
+            "month": eight_char.getMonth(),
+            "day": eight_char.getDay(),
+            "hour": eight_char.getTime()
+        },
+        "day_master": {
+            "stem": day_stem,
+            "element": day_element
+        },
+        "strength": {
+            "score": score,
+            "type": strength_type
+        },
+        "element_roles": element_roles,
+        "da_yun_cycles": da_yun_list,
+        "current_year": {
+            "year": current_year,
+            "ganzhi": current_year_ganzhi,
+            "influence": current_influence
+        }
+    }
