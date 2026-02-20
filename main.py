@@ -186,6 +186,10 @@ def calculate_saju(birth_date: str, birth_time: str, timezone: str, gender: int)
         }
     }
 
+# =====================================
+# COMPATIBILITY ENDPOINT
+# =====================================
+
 @app.get("/compatibility")
 def compatibility(
     birth_date1: str,
@@ -236,4 +240,67 @@ def compatibility(
             "person1_element": person1["day_element"],
             "person2_element": person2["day_element"]
         }
+    }
+
+# =====================================
+# RELATIONSHIP TIMING ENDPOINT
+# =====================================
+
+@app.get("/relationship-timing")
+def relationship_timing(
+    birth_date: str,
+    birth_time: str,
+    timezone: str,
+    gender: int
+):
+
+    chart = build_chart(birth_date, birth_time, timezone, gender)
+
+    day_element = chart["day_element"]
+
+    # Determine spouse element
+    if gender == 0:  # Female → Officer (controls Day Master)
+        spouse_element = CONTROLS[day_element]
+        spouse_type = "Officer Star (관성)"
+    else:  # Male → Wealth (controlled by Day Master)
+        spouse_element = GENERATES[CONTROLS[day_element]]
+        spouse_type = "Wealth Star (재성)"
+
+    # Current year
+    current_year = dt.date.today().year
+    current_solar = Solar.fromYmd(current_year, 1, 1)
+    current_lunar = current_solar.getLunar()
+    current_year_ganzhi = current_lunar.getYearInGanZhi()
+
+    year_stem = current_year_ganzhi[0]
+    year_element, _ = STEM_INFO[year_stem]
+
+    activation_score = 50
+
+    if year_element == spouse_element:
+        activation_score += 25
+    elif GENERATES[year_element] == spouse_element:
+        activation_score += 15
+    elif CONTROLS[year_element] == spouse_element:
+        activation_score -= 15
+
+    activation_score = max(0, min(100, activation_score))
+
+    if activation_score >= 75:
+        tier = "Strong Romantic Activation"
+        marriage_window = "High probability within 1–2 years"
+    elif activation_score >= 50:
+        tier = "Moderate Romantic Energy"
+        marriage_window = "Possible relationship growth phase"
+    else:
+        tier = "Low Romantic Activation"
+        marriage_window = "Focus on personal development first"
+
+    return {
+        "spouse_star_type": spouse_type,
+        "spouse_element": spouse_element,
+        "current_year_element": year_element,
+        "romantic_activation_score": activation_score,
+        "activation_tier": tier,
+        "marriage_window_assessment": marriage_window
     }
