@@ -37,6 +37,28 @@ CONTROLS = {
 
 ALL_ELEMENTS = ["Wood", "Fire", "Earth", "Metal", "Water"]
 
+def build_chart(birth_date, birth_time, timezone, gender):
+    tz = pytz.timezone(timezone)
+    dt_obj = datetime.strptime(f"{birth_date} {birth_time}", "%Y-%m-%d %H:%M")
+    dt_obj = tz.localize(dt_obj)
+
+    solar = Solar.fromYmdHms(
+        dt_obj.year, dt_obj.month, dt_obj.day,
+        dt_obj.hour, dt_obj.minute, 0
+    )
+
+    lunar = solar.getLunar()
+    eight_char = lunar.getEightChar()
+
+    day_stem = eight_char.getDayGan()
+    day_element, _ = STEM_INFO[day_stem]
+
+    return {
+        "eight_char": eight_char,
+        "day_stem": day_stem,
+        "day_element": day_element
+    }
+
 def classify_elements(day_element, strength_type, climate_element):
 
     favorable = []
@@ -161,5 +183,57 @@ def calculate_saju(birth_date: str, birth_time: str, timezone: str, gender: int)
             "year": current_year,
             "ganzhi": current_year_ganzhi,
             "influence": current_influence
+        }
+    }
+
+@app.get("/compatibility")
+def compatibility(
+    birth_date1: str,
+    birth_time1: str,
+    timezone1: str,
+    gender1: int,
+    birth_date2: str,
+    birth_time2: str,
+    timezone2: str,
+    gender2: int
+):
+
+    person1 = build_chart(birth_date1, birth_time1, timezone1, gender1)
+    person2 = build_chart(birth_date2, birth_time2, timezone2, gender2)
+
+    score = 50  # neutral base
+
+    # Element harmony
+    if GENERATES[person1["day_element"]] == person2["day_element"]:
+        score += 15
+    elif CONTROLS[person1["day_element"]] == person2["day_element"]:
+        score -= 15
+
+    if GENERATES[person2["day_element"]] == person1["day_element"]:
+        score += 15
+    elif CONTROLS[person2["day_element"]] == person1["day_element"]:
+        score -= 15
+
+    # Clamp score
+    score = max(0, min(100, score))
+
+    if score >= 75:
+        tier = "High Compatibility"
+    elif score >= 50:
+        tier = "Moderate Compatibility"
+    else:
+        tier = "Challenging Dynamic"
+
+    dynamic = "Balanced and mutually supportive" if score >= 75 else \
+              "Growth-oriented but requires effort" if score >= 50 else \
+              "Strong attraction but potential tension"
+
+    return {
+        "compatibility_score": score,
+        "compatibility_tier": tier,
+        "relationship_dynamic": dynamic,
+        "element_interaction": {
+            "person1_element": person1["day_element"],
+            "person2_element": person2["day_element"]
         }
     }
